@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from transformer.models import ISAB, PMA
+from src.blocks import ISAB, PMA
 from argparse import ArgumentParser
 from matplotlib import pyplot as plt
 
@@ -39,7 +39,7 @@ if __name__ == "__main__":
         loss.mean().backward()
         optimizer.step()
         if i % 1 == 0:
-            logger.info(f"Iter: {i}\t" +
+            logger.info(f"Iter: {i}\t"
                         f"Loss: {loss.mean().data:.2f}\t")
 
     X_te, y_te = gen_data(2, 50)
