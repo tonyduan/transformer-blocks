@@ -79,6 +79,8 @@ if __name__ == "__main__":
         y_hat = vocabulary.itos[logits[0].argmax().data.cpu()]
         logger.info(f"y: {y}\tyhat: {y_hat}\tx: {x}")
 
+    print(f"NLL: {np.mean(results['preds_nll']):.2f}")
+
     save_path = f"{args.output_dir}/{args.experiment_name}"
     pathlib.Path(save_path).mkdir(parents=True, exist_ok=True)
     for k, v in results.items():
