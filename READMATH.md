@@ -1,12 +1,12 @@
-### Basic Transformer
+### Transformer Models
 
 Last update: April 2020.
 
 ---
 
-Implementations of a few attention-based [1] models in PyTorch. We follow the notation of the Set Transformer [2], since much of our codebase was built on theirs. Of course, the Annotated Transformer [3] was helpful as well.
+Implementations of blocks for attention-based models; the encoder/decoder blocks of the original Transformer [1] and permutation-equivarant blocks of the Set Transformer [2]. The Annotated Transformer [3] proved a useful reference.
 
-**Attention**
+**Scaled Dot-Product Attention**
 
 For set of queries $Q$, keys $K$, and values $V$, we define:
 $$
@@ -14,7 +14,7 @@ $$
 $$
 
 
-The interpretation is that each query $q_k$ corresponds to a different feature, which is constructed as a convex combination of values $v_k$, where the weights are given by the dot products between the query and the keys $k_k$. To see this, we can expand:
+The interpretation is that each query $q_k$ corresponds to a different feature, which is constructed as a convex combination of values $v_k$, where the weights are given by the dot products between the query and the keys $k_k$. To see this, we can expand (note each matrix consists of *row vectors*, not column vectors):
 $$
 \text{Softmax}\left(\frac{1}{\sqrt d}
 \begin{bmatrix}
@@ -28,46 +28,31 @@ $$
 
 where the softmax is applied row-by-row, corresponding to a softmax per query. [Note: In the above $w_i^{(j)}$ corresponds to the weights over $v_1,\dots,v_n$ that arise from softmax due to the $j$-th query vector $q_j$.]
 
+
+
 We normalize by $\frac{1}{\sqrt d_k}$ (the dimensionality of the queries and keys) to prevent the dot products $q_i^\top k_j$ from blowing up in value and thereby vanishing gradients of the softmax. [Note: Recall that if $q \sim N(0, I)$ and $k\sim N(0,I)$ then $q^\top k\sim N(0, d_k)$.]
 
-**Multi-head attention block (MAB)**
+**Multi-Head Attention**
 
-The multi-head attention block takes queries $Q$ and values $V$, and treats the values $V$ as keys $K$. It uses $h$ heads to project the queries, keys, and values into $h$ different embeddings through linear transforms. Then it applies attention to each of the $h$ embeddings, concatenates the resulting features at the end, then adds it to the result of another feed-forward neural network at the end like a residual block.
+Multi-head attention projects $Q,V,K$ using $h$ heads through linear transforms. Then it applies attention to each of the $h$ embeddings, concatenates the resulting features at the end, then sends the result through another linear transform.
 $$
 \begin{align*}
-\mathrm{MAB}(Q,V) & =[O_1,\dots,O_h] + \mathrm{ReLU}([O_1,\dots,O_h]W^O)\\
-O_i & = \text{Attention}(QW_i^Q, VW_i^K,VW_i^V)
+\mathrm{MultiHeadAttn}(Q,V) & = \mathrm{Concat}(O_1,\dots,O_h)W^O\\
+\mathrm{where}\ O_i & = \text{Attention}(QW_i^Q, VW_i^K,VW_i^V)
 \end{align*}
 $$
+
 
 
 Note that above $\{W_i^Q,W_i^K,W_i^V\}_{i=1}^h$ and $W^O$ are trainable parameters. 
 
-**Set attention block (SAB)**
+**Language Model**
 
-This is just a MAB with self-attention over elements of the set.
+In this repository we implement a simple language model using the WikiText-2 dataset. For this task given a corpus we try to learn the distribution
 $$
-\mathrm{SAB}(X) = \mathrm{MAB}(X,X)
+p(x^{(i)}\ |\ x^{(i-L)},\dots,x^{(i-1)}) \sim \mathrm{Categorical}
 $$
-
-
-**Induced set attention block (ISAB)**
-
-To reduce the computational complexity of self-attention we replace the values with a set of $m$ induced values. These values are determined by attending over $X$ with a set of $m$ inducing points $I$ as query vectors. 
-$$
-\begin{align*}
-	\mathrm{ISAB}(X) &= \mathrm{MAB}(X,H),\\
-	H & = \mathrm{MAB}(I, X)
-\end{align*}
-$$
-
-
-**Pooling by multi-head attention (PMA)**
-
-After applying layers of set attention blocks, we want to pool the output into a set of $k$ elements. To do so we learn a set of $k$ seed vectors $S$ and which are queried over the elements $X$.
-$$
-\mathrm{PMA}_k(X) = \mathrm{MAB}(S,X)
-$$
+using a set of Transformer encoder blocks followed by an attention-based pooling layer. Note that the English vocabulary has roughly 30k tokens in size.
 
 #### References
 
