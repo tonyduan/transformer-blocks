@@ -5,7 +5,7 @@ from torchtext.experimental import datasets
 
 
 
-def get_dataset(name, split, tokenizer="basic_english"):
+def get_dataset(name, split, tokenizer="spacy"):
 
     tokenizer = get_tokenizer(tokenizer)
 
