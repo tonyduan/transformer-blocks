@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from src.blocks import ISAB, PMA
+from src.blocks import SAB, PMA
 from argparse import ArgumentParser
 from matplotlib import pyplot as plt
 
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     x_tr = torch.tensor(x_tr, dtype=torch.float)
     y_tr = torch.tensor(y_tr, dtype=torch.float)
 
-    model = nn.Sequential(ISAB(dim=2, num_heads=1, num_inds=1),
+    model = nn.Sequential(SAB(dim=2, num_heads=1),
                           PMA(dim=2, num_heads=1))
     optimizer = optim.Adam(model.parameters(), lr=0.1)
 
@@ -45,21 +45,24 @@ if __name__ == "__main__":
             logger.info(f"Iter: {i}\t"
                         f"Loss: {loss.mean().data:.2f}\t")
 
-    x_te, y_te = gen_data(2, 50)
+
+    x_te, y_te = gen_data(3, 50)
     x_te = torch.tensor(x_te, dtype=torch.float)
     y_te = torch.tensor(y_te, dtype=torch.float)
     y_hat = model.forward(x_te)
 
     plt.figure(figsize=(8, 3))
-    plt.scatter(x_te.data[:,:,0], x_te.data[:,:,1], color="black",
-                label="Train", marker="x", alpha=0.5)
-    plt.scatter(y_hat.data[:,:,0], y_hat.data[:,:,1], color="red",
-                label="Pred", marker="x", alpha=0.5)
-    plt.scatter(y_te.data[:,:,0], y_te.data[:,:,1], color="blue",
-                label="True", marker="x", alpha=0.5)
-    plt.axvline(0, ls="--", color="black", alpha=0.5)
-    plt.axhline(0, ls="--", color="black", alpha=0.5)
-    plt.legend()
+    for i in range(3):
+        plt.subplot(1, 3, i + 1)
+        plt.scatter(x_te.data[i,:,0], x_te.data[i,:,1], color="black",
+                    label="Train", marker="x", alpha=0.5)
+        plt.scatter(y_hat.data[i,:,0], y_hat.data[i,:,1], color="red",
+                    label="Pred", marker="x", alpha=0.5)
+        plt.scatter(y_te.data[i,:,0], y_te.data[i,:,1], color="green",
+                    label="True", marker="x", alpha=0.5)
+        plt.axvline(0, ls="--", color="black", alpha=0.5)
+        plt.axhline(0, ls="--", color="black", alpha=0.5)
+        plt.legend()
 
     plt.savefig("./examples/max_value.png")
     plt.show()

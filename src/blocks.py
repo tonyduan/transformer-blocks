@@ -5,15 +5,15 @@ import torch.nn as nn
 class MultiHeadAttn(nn.Module):
     """
     Multi-Head Attention [Vaswani et al. NeurIPS 2017].
-    
-    Scaled dot-product attention is performed over V, using K as keys and Q as queries. 
+
+    Scaled dot-product attention is performed over V, using K as keys and Q as queries.
 
         MultiHeadAttn(Q, V) = FC(SoftMax(1/√d QKᵀ) V) (concatenated over multiple heads),
 
     Notes
     -----
     (1) Q, K, V can be of different dimensions, though Q/K are projected to the dimensionality of V.
-    (2) We assume the last and second last dimensions correspond to the feature (i.e. embedding)  
+    (2) We assume the last and second last dimensions correspond to the feature (i.e. embedding)
         and token (i.e. words) dimensions respectively.
     """
     def __init__(self, dim_q, dim_k, dim_v, num_heads=8, dropout_prob=0.1):
@@ -52,8 +52,10 @@ class MultiHeadAttn(nn.Module):
         q = torch.cat(q.split(split_size, dim=-1), dim=0)
         k = torch.cat(k.split(split_size, dim=-1), dim=0)
         v = torch.cat(v.split(split_size, dim=-1), dim=0)
-        a = self.dropout(torch.softmax(q @ k.transpose(-1, -2) / self.dim_v ** 0.5, dim=-1))
-        a = a * mask.unsqueeze(-2) if mask is not None else a
+        a = q @ k.transpose(-1, -2) / self.dim_v ** 0.5
+        if mask is not None:
+            a[mask.unsqueeze(-2) == 0] = -65504
+        a = self.dropout(torch.softmax(a, dim=-1))
         o = self.fc_o(torch.cat((a @ v).split(batch_size, dim=0), dim=-1))
         return o
 
