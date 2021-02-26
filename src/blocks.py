@@ -54,7 +54,7 @@ class MultiHeadAttn(nn.Module):
         v = torch.cat(v.split(split_size, dim=-1), dim=0)
         a = q @ k.transpose(-1, -2) / self.dim_v ** 0.5
         if mask is not None:
-            a[mask.unsqueeze(-2) == 0] = -65504
+            a[mask.unsqueeze(-2).repeat(self.num_heads, token_size, 1) == 0] = -65504
         a = self.dropout(torch.softmax(a, dim=-1))
         o = self.fc_o(torch.cat((a @ v).split(batch_size, dim=0), dim=-1))
         return o
