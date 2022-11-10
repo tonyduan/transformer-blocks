@@ -16,13 +16,18 @@ class MultiHeadAttn(nn.Module):
     (2) We assume the last and second last dimensions correspond to the feature (i.e. embedding)
         and token (i.e. words) dimensions respectively.
     """
-    def __init__(self, dim_q, dim_k, dim_v, num_heads=8, dropout_prob=0.1):
+    def __init__(self, dim_q, dim_k, dim_v, num_heads=8, dropout_prob=0.1, dim_a=None, dim_o=None):
         super().__init__()
+        if dim_a is None:
+            dim_a = dim_v
+        if dim_o is None:
+            dim_o = dim_v
         self.dim_q, self.dim_v, self.num_heads = dim_q, dim_v, num_heads
-        self.fc_q = nn.Linear(dim_q, dim_v, bias=True)
-        self.fc_k = nn.Linear(dim_k, dim_v, bias=True)
-        self.fc_v = nn.Linear(dim_v, dim_v, bias=True)
-        self.fc_o = nn.Linear(dim_v, dim_v, bias=True)
+        self.dim_a, self.dim_o = dim_a, dim_o
+        self.fc_q = nn.Linear(dim_q, dim_a, bias=True)
+        self.fc_k = nn.Linear(dim_k, dim_a, bias=True)
+        self.fc_v = nn.Linear(dim_v, dim_o, bias=True)
+        self.fc_o = nn.Linear(dim_o, dim_o, bias=True)
         self.dropout = nn.Dropout(dropout_prob)
         self.initialize_weights()
 
@@ -46,13 +51,12 @@ class MultiHeadAttn(nn.Module):
         -------
         O: (batch_size, token_size, dim_v)
         """
-        batch_size = len(q)
+        batch_size, token_size, _ = q.shape
         q, k, v = self.fc_q(q), self.fc_k(k), self.fc_v(v)
-        split_size = self.dim_v // self.num_heads
-        q = torch.cat(q.split(split_size, dim=-1), dim=0)
-        k = torch.cat(k.split(split_size, dim=-1), dim=0)
-        v = torch.cat(v.split(split_size, dim=-1), dim=0)
-        a = q @ k.transpose(-1, -2) / self.dim_v ** 0.5
+        q = torch.cat(q.split(self.dim_a // self.num_heads, dim=-1), dim=0)
+        k = torch.cat(k.split(self.dim_a // self.num_heads, dim=-1), dim=0)
+        v = torch.cat(v.split(self.dim_o // self.num_heads, dim=-1), dim=0)
+        a = q @ k.transpose(-1, -2) / self.dim_a ** 0.5
         if mask is not None:
             a[mask.unsqueeze(-2).repeat(self.num_heads, token_size, 1) == 0] = -65504
         a = self.dropout(torch.softmax(a, dim=-1))
