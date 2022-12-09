@@ -19,11 +19,10 @@ class MultiHeadAttn(nn.Module):
     def __init__(self, dim_q, dim_k, dim_v, num_heads=8, dropout_prob=0.1, dim_a=None, dim_o=None):
         super().__init__()
         if dim_a is None:
-            dim_a = dim_v
+            dim_a = dim_q
         if dim_o is None:
             dim_o = dim_v
-        self.dim_q, self.dim_v, self.num_heads = dim_q, dim_v, num_heads
-        self.dim_a, self.dim_o = dim_a, dim_o
+        self.dim_a, self.dim_o, self.num_heads = dim_a, dim_o, num_heads
         self.fc_q = nn.Linear(dim_q, dim_a, bias=True)
         self.fc_k = nn.Linear(dim_k, dim_a, bias=True)
         self.fc_v = nn.Linear(dim_v, dim_o, bias=True)
@@ -42,26 +41,65 @@ class MultiHeadAttn(nn.Module):
 
         Parameters
         ----------
-        q: (batch_size, token_size, dim_q)
-        k: (batch_size, token_size, dim_q)
-        v: (batch_size, token_size, dim_v)
-        mask: (batch_size, token_size), where 1 denotes keep and 0 denotes remove
+        q: (bsz, tsz, dim_q)
+        k: (bsz, tsz, dim_k)
+        v: (bsz, tsz, dim_v)
+        mask: (bsz, tsz) or (bsz, tsz, tsz), where 1 denotes keep and 0 denotes remove
 
         Returns
         -------
-        O: (batch_size, token_size, dim_v)
+        O: (bsz, tsz, dim_o)
         """
-        batch_size, token_size, _ = q.shape
+        bsz, tsz, _ = q.shape
         q, k, v = self.fc_q(q), self.fc_k(k), self.fc_v(v)
         q = torch.cat(q.split(self.dim_a // self.num_heads, dim=-1), dim=0)
         k = torch.cat(k.split(self.dim_a // self.num_heads, dim=-1), dim=0)
         v = torch.cat(v.split(self.dim_o // self.num_heads, dim=-1), dim=0)
         a = q @ k.transpose(-1, -2) / self.dim_a ** 0.5
         if mask is not None:
-            a[mask.unsqueeze(-2).repeat(self.num_heads, token_size, 1) == 0] = -65504
+            assert mask.ndim in (2, 3)
+            if mask.ndim == 2:
+                mask = mask.unsqueeze(-2).repeat(self.num_heads, tsz, 1)
+            if mask.ndim == 3:
+                mask = mask.repeat(self.num_heads, 1, 1)
+            a.masked_fill_(mask == 0, -32768)
         a = self.dropout(torch.softmax(a, dim=-1))
-        o = self.fc_o(torch.cat((a @ v).split(batch_size, dim=0), dim=-1))
+        o = self.fc_o(torch.cat((a @ v).split(bsz, dim=0), dim=-1))
         return o
+
+
+class PointerAttention(nn.Module):
+    """
+    Pointer Attention [Vinyals et al. 2015].
+
+    Note that this does *not* apply the softmax; for numerical stability you want F.log_softmax.
+    """
+    def __init__(self, dim_q, dim_k, dropout_prob=0.1, dim_a=None):
+        super().__init__()
+        if dim_a is None:
+            dim_a = dim_k
+        self.dim_a = dim_a
+        self.fc_q = nn.Linear(dim_q, dim_a, bias=True)
+        self.fc_k = nn.Linear(dim_k, dim_a, bias=True)
+        self.initialize_weights()
+
+    def initialize_weights(self):
+        for module in (self.fc_q, self.fc_k):
+            nn.init.xavier_normal_(module.weight)
+            nn.init.constant_(module.bias, 0.)
+
+    def forward(self, q, k, mask=None):
+        bsz, tsz, _ = q.shape
+        q, k, = self.fc_q(q), self.fc_k(k)
+        a = q @ k.transpose(-1, -2) / self.dim_a ** 0.5
+        if mask is not None:
+            assert mask.ndim in (2, 3)
+            if mask.ndim == 2:
+                mask = mask.unsqueeze(-2).repeat(self.num_heads, tsz, 1)
+            if mask.ndim == 3:
+                mask = mask.repeat(self.num_heads, 1, 1)
+            a.masked_fill_(mask == 0, -32768)
+        return a
 
 
 class PositionwiseFFN(nn.Module):
@@ -93,12 +131,14 @@ class EncoderBlock(nn.Module):
         self.attn = MultiHeadAttn(dim, dim, dim, num_heads, dropout_prob)
         self.ffn = PositionwiseFFN(dim, hidden_dim, dropout_prob)
         self.dropout = nn.Dropout(dropout_prob)
-        self.ln1 = nn.LayerNorm(dim)
-        self.ln2 = nn.LayerNorm(dim)
+        self.ln1 = ScaleNorm(dim)
+        self.ln2 = ScaleNorm(dim)
 
     def forward(self, x, mask=None):
-        x = self.ln1(x + self.dropout(self.attn(x, x, x, mask)))
-        x = self.ln2(x + self.dropout(self.ffn(x)))
+        x_ = self.ln1(x)
+        x = x + self.dropout(self.attn(x_, x_, x_, mask))
+        x_ = self.ln2(x)
+        x = x + self.dropout(self.ffn(x))
         return x
 
 
@@ -112,14 +152,32 @@ class DecoderBlock(nn.Module):
         self.mem_attn = MultiHeadAttn(dim, dim, dim, num_heads, dropout_prob)
         self.ffn = PositionwiseFFN(dim, hidden_dim, dropout_prob)
         self.dropout = nn.Dropout(dropout_prob)
-        self.ln1 = nn.LayerNorm(dim)
-        self.ln2 = nn.LayerNorm(dim)
-        self.ln3 = nn.LayerNorm(dim)
+        self.ln1 = ScaleNorm(dim)
+        self.ln2 = ScaleNorm(dim)
+        self.ln3 = ScaleNorm(dim)
 
     def forward(self, x, memory, mask=None, memory_mask=None):
-        x = self.ln1(x + self.dropout(self.attn(x, x, x, mask)))
-        x = self.ln2(x + self.dropout(self.mem_attn(x, memory, memory, memory_mask)))
-        x = self.ln3(x + self.dropout(self.ffn(x)))
+        x_ = self.ln1(x)
+        x = x + self.dropout(self.attn(x, x, x, mask))
+        x_ = self.ln2(x)
+        x = x + self.dropout(self.mem_attn(x_, memory, memory, memory_mask))
+        x_ = self.ln3(x)
+        x = x + self.dropout(self.ffn(x))
+        return x
+
+
+class ScaleNorm(nn.Module):
+    """
+    ScaleNorm [Nguyen and Salazar 2019].
+    """
+    def __init__(self, dim, eps=1e-5):
+        super().__init__()
+        self.g = nn.Parameter(torch.ones(1) * dim ** 0.5)
+        self.eps = eps
+
+    def forward(self, x):
+        n = torch.norm(x, dim=-1, keepdim=True).clamp(min=self.eps)
+        x = x / n * self.g
         return x
 
 
@@ -134,8 +192,8 @@ class MAB(nn.Module):
     def __init__(self, dim, num_heads, use_layer_norm=False):
         super().__init__()
         self.attn = MultiHeadAttn(dim, dim, dim, num_heads, dropout_prob=0.)
-        self.ln1 = nn.LayerNorm(dim) if use_layer_norm else nn.Identity()
-        self.ln2 = nn.LayerNorm(dim) if use_layer_norm else nn.Identity()
+        self.ln1 = ScaleNorm(dim) if use_layer_norm else nn.Identity()
+        self.ln2 = ScaleNorm(dim) if use_layer_norm else nn.Identity()
         self.fc = nn.Linear(dim, dim, bias=True)
         self.initialize_weights()
 

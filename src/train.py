@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
     dataset = get_dataset(args.dataset, "train")
     dataset = LanguageModelDatasetWrapper(dataset, args.seq_length)
-    train_loader = DataLoader(dataset, shuffle=True, batch_size=args.batch_size, 
+    train_loader = DataLoader(dataset, shuffle=True, batch_size=args.batch_size,
                               num_workers=args.num_workers)
 
     logger.info(f"Vocabulary size: {len(dataset.vocab.itos)}")
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     for epoch in range(args.num_epochs):
 
         for i, (x, y) in enumerate(train_loader):
-            
+
             x, y = x.to(args.device), y.to(args.device)
             loss = model.loss(x, y).mean()
 
@@ -82,7 +82,7 @@ if __name__ == "__main__":
                             f"Experiment: {args.experiment_name}")
                 train_losses.append(loss_meter.value()[0])
                 loss_meter.reset()
-        
+
         if (epoch + 1) % args.save_every == 0:
             save_path = f"{args.output_dir}/{args.experiment_name}/{epoch + 1}/"
             pathlib.Path(save_path).mkdir(parents=True, exist_ok=True)
