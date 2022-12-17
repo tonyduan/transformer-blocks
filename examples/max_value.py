@@ -88,9 +88,11 @@ if __name__ == "__main__":
     y_te = y_te.numpy()
     y_hat_argmax = y_hat_argmax.numpy()
 
+    NUM_SAMPLES_TO_VIS = 6
+
     plt.figure(figsize=(16, 10))
-    for i in range(6):
-        plt.subplot(2, 6, i + 1)
+    for i in range(NUM_SAMPLES_TO_VIS):
+        plt.subplot(2, 3, i + 1)
         plt.scatter(x_te[i, :, 0], x_te[i, :, 1], marker="o", alpha=0.5, color="grey")
         plt.scatter(x_te[i, y_te[i].item(), 0], x_te[i, y_te[i].item(), 1], marker="o",
                     alpha=1.0, color="blue")

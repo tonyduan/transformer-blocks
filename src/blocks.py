@@ -58,11 +58,11 @@ class MultiHeadAttn(nn.Module):
         a = q @ k.transpose(-1, -2) / self.dim_a ** 0.5
         if mask is not None:
             assert mask.ndim in (2, 3)
-            if mask.ndim == 2:
-                mask = mask.unsqueeze(-2).repeat(self.num_heads, tsz, 1)
             if mask.ndim == 3:
                 mask = mask.repeat(self.num_heads, 1, 1)
-            a.masked_fill_(mask == 0, -32768)
+            if mask.ndim == 2:
+                mask = mask.unsqueeze(-2).repeat(self.num_heads, tsz, 1)
+            a.masked_fill_(mask == 0, -65504)
         a = self.dropout(torch.softmax(a, dim=-1))
         o = self.fc_o(torch.cat((a @ v).split(bsz, dim=0), dim=-1))
         return o
@@ -94,11 +94,11 @@ class PointerAttention(nn.Module):
         a = q @ k.transpose(-1, -2) / self.dim_a ** 0.5
         if mask is not None:
             assert mask.ndim in (2, 3)
-            if mask.ndim == 2:
-                mask = mask.unsqueeze(-2).repeat(self.num_heads, tsz, 1)
             if mask.ndim == 3:
                 mask = mask.repeat(self.num_heads, 1, 1)
-            a.masked_fill_(mask == 0, -32768)
+            if mask.ndim == 2:
+                mask = mask.unsqueeze(-2).repeat(self.num_heads, tsz, 1)
+            a.masked_fill_(mask == 0, -65504)
         return a
 
 
@@ -125,6 +125,8 @@ class PositionwiseFFN(nn.Module):
 class EncoderBlock(nn.Module):
     """
     Transformer encoder block [Vaswani et al. NeurIPS 2017].
+
+    Note that this is the post-LN version [Nguyen and Salazar 2019].
     """
     def __init__(self, dim, hidden_dim, num_heads=8, dropout_prob=0.1):
         super().__init__()
@@ -145,6 +147,8 @@ class EncoderBlock(nn.Module):
 class DecoderBlock(nn.Module):
     """
     Transformer decoder block [Vaswani et al. 2017].
+
+    Note that this is the post-LN version [Nguyen and Salazar 2019].
     """
     def __init__(self, dim, hidden_dim, num_heads=8, dropout_prob=0.1):
         super().__init__()
