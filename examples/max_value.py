@@ -43,8 +43,7 @@ class MaxValueExtractor(nn.Module):
         x = self.projection(x)
         v = self.ln_v(self.encoder_blocks(x))
         q = self.ln_q(self.query.repeat(bsz, 1, 1))
-        attn = self.pointer_attn(q, v).squeeze(dim=1)
-        log_lik = torch.log_softmax(attn, dim=-1)
+        log_lik = self.pointer_attn(q, v).squeeze(dim=1)
         return log_lik
 
 
@@ -81,12 +80,13 @@ if __name__ == "__main__":
     x_te, y_te = gen_data(100, 50)
     x_te = torch.tensor(x_te, dtype=torch.float32)
     y_te = torch.tensor(y_te, dtype=torch.int64)
-    y_hat = model.forward(x_te)
-    y_hat_argmax = torch.argmax(y_hat, dim=-1)
+    with torch.no_grad():
+        y_hat = model.forward(x_te)
+        y_hat_argmax = torch.argmax(y_hat, dim=-1)
 
-    x_te = x_te.numpy()
-    y_te = y_te.numpy()
-    y_hat_argmax = y_hat_argmax.numpy()
+    x_te = x_te.data.numpy()
+    y_te = y_te.data.numpy()
+    y_hat_argmax = y_hat_argmax.data.numpy()
 
     NUM_SAMPLES_TO_VIS = 6
 

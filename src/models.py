@@ -1,29 +1,7 @@
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from src.blocks import *
-
-
-class PositionalEncoding(nn.Module):
-    """
-    Positional Encoding module [Vaswani et al. NeurIPS 2017].
-
-    Adds sinusoids with wavelengths of increasing length (lower freq) along the embedding dimension. 
-    First dimension has wavelength 2π while last dimension has wavelength max_length.
-    """
-    def __init__(self, dim, dropout_prob, max_length=10000):
-        super().__init__()
-        self.dropout = nn.Dropout(dropout_prob)
-        encoding = torch.zeros(max_length, dim)
-        position = torch.arange(0, max_length).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, dim, 2) * (-math.log(max_length / 2 / math.pi) / dim))
-        encoding[:, 0::2] = torch.sin(position * div_term)
-        encoding[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer("encoding", encoding)
-
-    def forward(self, x, token_dim=1):
-        return self.dropout(x + self.encoding[:x.shape[token_dim], :])
 
 
 class BERTLanguageModel(nn.Module):
@@ -36,7 +14,7 @@ class BERTLanguageModel(nn.Module):
     -----
     Instead of a <CLS> token, we use a pooling by multi-head attention (PMA) block for final layer.
     """
-    def __init__(self, device, vocab_size, num_layers, dim, hidden_dim, 
+    def __init__(self, device, vocab_size, num_layers, dim, hidden_dim,
                  num_heads=8, dropout_prob=0.1, max_length=10000):
         super().__init__()
         self.device = device
@@ -71,4 +49,4 @@ class BERTLanguageModel(nn.Module):
     def loss(self, x, y):
         logits = self.forward(x)
         return F.cross_entropy(logits, y, reduction="none")
-        
+

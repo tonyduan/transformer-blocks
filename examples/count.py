@@ -92,10 +92,11 @@ if __name__ == "__main__":
     x_te, y_te = gen_data(100, n=args.n, k=args.vocab_size)
     x_te = torch.tensor(x_te, dtype=torch.int32)
     y_te = torch.tensor(y_te, dtype=torch.int32)
-    y_hat = model.forward(x_te)
+    with torch.no_grad():
+        y_hat = model.forward(x_te)
 
-    y_te = y_te.numpy()
-    y_hat = y_hat.numpy()
+    y_te = y_te.data.numpy()
+    y_hat = y_hat.data.numpy()
 
     r2_score = 1 - np.sum((y_te - y_hat) ** 2) / np.sum((y_te - y_te.mean()) ** 2)
     l1_error = np.abs(y_hat - y_te).mean()
