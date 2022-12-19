@@ -35,21 +35,21 @@ Multi-head attention projects $Q,V,K$ using $h$ heads through linear transforms.
 
 ```math
 \begin{align*}
-\mathrm{MultiHeadAttn}(Q,V) & = \mathrm{Concat}(O_1,\dots,O_h)W^O\\
-\mathrm{where}\ O_i & = \text{Attention}(QW_i^Q, VW_i^K,VW_i^V)
+\mathrm{MultiHeadAttn}(Q,K V) & = \mathrm{Concat}(O_1,\dots,O_h)W^\mathrm{O}\\
+\mathrm{where}\ O_i & = \text{Attention}(QW_i^\mathrm{Q}, KW_i^\mathrm{K},VW_i^\mathrm{V})
 \end{align*}
 ```
 
-Above $\{W_i^Q,W_i^K,W_i^V\}_{i=1}^h$ and $W^O$ are trainable parameters. Note that the operation is permutation-equivariant.
+Above $(W_i^\mathrm{Q},W_i^\mathrm{K},W_i^\mathrm{V})_{i=1}^h$ and $W^\mathrm{O}$ are trainable parameters and $h$ denotes the number of heads. Note that the operation is permutation-equivariant with respect to the queries $Q$.
 
 **Language Model**
 
 In this repository we implement a simple language model using the WikiText-2 dataset. For this task given a corpus we try to learn the distribution
 
 ```math
-p(x^{(i)}\ |\ x^{(i-L)},\dots,x^{(i-1)}) \sim \mathrm{Categorical}
+p(x^{(i)}\ |\ x^{(i-L)},\dots,x^{(i-1)}) \sim \mathrm{Categorical}(\dots),
 ```
-using a set of Transformer encoder blocks followed by an attention-based pooling layer. Note that the English vocabulary has roughly 30k tokens in size.
+using a set of Transformer encoder blocks followed by an attention-based pooling layer. Note that the English vocabulary consists of roughly 30k tokens in size.
 
 #### References
 

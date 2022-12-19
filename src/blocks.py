@@ -165,21 +165,6 @@ class DecoderBlock(nn.Module):
         return x
 
 
-class ScaleNorm(nn.Module):
-    """
-    ScaleNorm [Nguyen and Salazar 2019].
-    """
-    def __init__(self, dim, eps=1e-5):
-        super().__init__()
-        self.g = nn.Parameter(torch.ones(1) * dim ** 0.5)
-        self.eps = eps
-
-    def forward(self, x):
-        n = torch.norm(x, dim=-1, keepdim=True).clamp(min=self.eps)
-        x = x / n * self.g
-        return x
-
-
 class PositionalEncoding(nn.Module):
     """
     Positional Encoding module [Vaswani et al. NeurIPS 2017].
@@ -200,6 +185,21 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         _, tsz, _ = x.shape
         return self.dropout(x + self.encoding[:tsz, :])
+
+
+class ScaleNorm(nn.Module):
+    """
+    ScaleNorm [Nguyen and Salazar 2019].
+    """
+    def __init__(self, dim, eps=1e-5):
+        super().__init__()
+        self.g = nn.Parameter(torch.ones(1) * dim ** 0.5)
+        self.eps = eps
+
+    def forward(self, x):
+        n = torch.norm(x, dim=-1, keepdim=True).clamp(min=self.eps)
+        x = x / n * self.g
+        return x
 
 
 class MAB(nn.Module):
