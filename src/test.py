@@ -2,7 +2,6 @@ import numpy as np
 import logging
 import pathlib
 import os
-import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -38,7 +37,7 @@ if __name__ == "__main__":
     vocabulary = dataset.vocab
     dataset = LanguageModelDatasetWrapper(dataset, args.seq_length)
     dataset = Subset(dataset, list(range(0, len(dataset), args.dataset_skip)))
-    test_loader = DataLoader(dataset, shuffle=False, batch_size=args.batch_size, 
+    test_loader = DataLoader(dataset, shuffle=False, batch_size=args.batch_size,
                              num_workers=args.num_workers)
 
     if not args.save_path:

@@ -7,18 +7,20 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from src.blocks import EncoderBlock, PointerAttention, ScaleNorm
+from src.blocks import EncoderBlock, ScaleNorm
 
 
-def gen_data(m, n, k):
+def gen_data(m, n, k, include_start_token=True):
     """
     Returns m batches of n tokens, see below where START = 0 and RAND ~ (1, ..., k - 1).
         [[START, RAND, RAND, ..., RAND],
          [START, RAND, RAND, ..., RAND]]
     """
-    #x = np.random.randint(k - 1, size=(m, n - 1)) + 1
-    #x = np.c_[np.zeros((m, 1), dtype=np.int32), x]
-    x = np.random.randint(k, size=(m, n))
+    if include_start_token:
+        x = np.random.randint(k - 1, size=(m, n - 1)) + 1
+        x = np.c_[np.zeros((m, 1), dtype=np.int32), x]
+    else:
+        x = np.random.randint(k, size=(m, n))
     y = np.vstack([np.arange(n) + 1 for _ in range(m)])
     return x, y
 
@@ -62,18 +64,21 @@ if __name__ == "__main__":
 
     argparser = ArgumentParser()
     argparser.add_argument("--iterations", type=int, default=300)
-    argparser.add_argument("--vocab_size", type=int, default=20)
-    argparser.add_argument("--n", type=int, default=50)
+    argparser.add_argument("--vocab-size", type=int, default=20)
+    argparser.add_argument("--n", type=int, default=100)
+    argparser.add_argument("--dim", type=int, default=20)
+    argparser.add_argument("--include-start-token", type=int, default=0)
     args = argparser.parse_args()
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    model = CountExtractor(vocab_size=args.vocab_size, dim=16)
-    optimizer = optim.AdamW(model.parameters(), lr=0.01)
+    model = CountExtractor(vocab_size=args.vocab_size, dim=args.dim)
+    optimizer = optim.AdamW(model.parameters(), lr=0.005)
     scheduler  = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.iterations)
 
-    x_tr, y_tr = gen_data(500, n=args.n, k=args.vocab_size)
+    x_tr, y_tr = gen_data(500, n=args.n, k=args.vocab_size,
+                          include_start_token=args.include_start_token)
     x_tr = torch.tensor(x_tr, dtype=torch.int32)
     y_tr = torch.tensor(y_tr, dtype=torch.int32)
 
@@ -85,11 +90,13 @@ if __name__ == "__main__":
         loss.mean().backward()
         optimizer.step()
         scheduler.step()
-        if i % 1 == 0:
+        if i % 5 == 0:
             logger.info(f"Iter: {i}\t"
                         f"Loss: {loss.mean().data:.2f}\t")
 
-    x_te, y_te = gen_data(100, n=args.n, k=args.vocab_size)
+    model.eval()
+    x_te, y_te = gen_data(100, n=args.n, k=args.vocab_size,
+                          include_start_token=args.include_start_token)
     x_te = torch.tensor(x_te, dtype=torch.int32)
     y_te = torch.tensor(y_te, dtype=torch.int32)
     with torch.no_grad():

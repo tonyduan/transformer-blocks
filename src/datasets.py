@@ -1,4 +1,3 @@
-import math
 from torch.utils.data import Dataset
 from torchtext.data.utils import get_tokenizer
 from torchtext.experimental import datasets
