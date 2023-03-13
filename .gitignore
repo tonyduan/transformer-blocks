@@ -2,5 +2,6 @@ data/*
 ckpts/*/*
 out/*
 *.swp
+*.swo
 *.pyc
 __pycache__
