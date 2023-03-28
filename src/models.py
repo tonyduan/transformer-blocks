@@ -1,10 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from src.blocks import (
-    EncoderBlock,
-    PositionalEncoding,
-    PMA,
-)
+from src.blocks import EncoderBlock, PositionalEncoding, PMA
 
 
 class BERTLanguageModel(nn.Module):

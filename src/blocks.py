@@ -22,7 +22,7 @@ class MultiHeadAttn(nn.Module):
         if dim_a is None:
             dim_a = dim_q
         if dim_o is None:
-            dim_o = dim_v
+            dim_o = dim_q
         self.dim_a, self.dim_o, self.num_heads = dim_a, dim_o, num_heads
         self.fc_q = nn.Linear(dim_q, dim_a, bias=True)
         self.fc_k = nn.Linear(dim_k, dim_a, bias=True)
@@ -145,10 +145,12 @@ class DecoderBlock(nn.Module):
 
     Note that this is the pre-LN version [Nguyen and Salazar 2019].
     """
-    def __init__(self, dim, hidden_dim, num_heads=8, dropout_prob=0.1):
+    def __init__(self, dim, hidden_dim, memory_dim=None, num_heads=8, dropout_prob=0.1):
         super().__init__()
+        if memory_dim is None:
+            memory_dim = dim
         self.attn = MultiHeadAttn(dim, dim, dim, num_heads, dropout_prob)
-        self.mem_attn = MultiHeadAttn(dim, dim, dim, num_heads, dropout_prob)
+        self.mem_attn = MultiHeadAttn(dim, memory_dim, memory_dim, num_heads, dropout_prob)
         self.ffn = PositionwiseFFN(dim, hidden_dim, dropout_prob)
         self.dropout = nn.Dropout(dropout_prob)
         self.ln1 = ScaleNorm(dim)
