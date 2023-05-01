@@ -1,15 +1,17 @@
 import math
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
-class MultiHeadAttn(nn.Module):
+class MultiHeadAttention(nn.Module):
     """
     Multi-Head Attention [Vaswani et al. NeurIPS 2017].
 
     Scaled dot-product attention is performed over V, using K as keys and Q as queries.
 
-        MultiHeadAttn(Q, V) = FC(SoftMax(1/√d QKᵀ) V) (concatenated over multiple heads),
+        MultiHeadAttention(Q, V) = FC(SoftMax(1/√d QKᵀ) V) (concatenated over multiple heads),
 
     Notes
     -----
@@ -66,13 +68,63 @@ class MultiHeadAttn(nn.Module):
         return o
 
 
+class LinearAttention(nn.Module):
+    """
+    Linear Attention with ELU activation [Katharopoulos et al. 2020].
+
+    Note the mask must either be causal or rectangular. Arbitrary masks are not supported.
+    """
+    def __init__(self, dim_q, dim_k, dim_v, num_heads=8, dropout_prob=0.1, dim_a=None, dim_o=None):
+        super().__init__()
+        if dim_a is None:
+            dim_a = dim_q
+        if dim_o is None:
+            dim_o = dim_q
+        self.dim_a, self.dim_o, self.num_heads = dim_a, dim_o, num_heads
+        self.fc_q = nn.Linear(dim_q, dim_a, bias=True)
+        self.fc_k = nn.Linear(dim_k, dim_a, bias=True)
+        self.fc_v = nn.Linear(dim_v, dim_o, bias=True)
+        self.fc_o = nn.Linear(dim_o, dim_o, bias=True)
+        self.dropout = nn.Dropout(dropout_prob)
+        for module in (self.fc_q, self.fc_k, self.fc_v, self.fc_o):
+            nn.init.xavier_normal_(module.weight)
+            nn.init.constant_(module.bias, 0.)
+
+    def forward(self, q, k, v, mask=None):
+        bsz, tsz, _ = q.shape
+        q, k, v = self.fc_q(q), self.fc_k(k), self.fc_v(v)
+        q = torch.cat(q.split(self.dim_a // self.num_heads, dim=-1), dim=0)
+        k = torch.cat(k.split(self.dim_a // self.num_heads, dim=-1), dim=0)
+        v = torch.cat(v.split(self.dim_o // self.num_heads, dim=-1), dim=0)
+        q = F.elu(q) + 1
+        k = F.elu(k) + 1
+        if mask is not None:
+            assert mask.ndim in (2, 3)
+            if mask.ndim == 3:
+                assert torch.all(torch.tril(mask) == mask)
+                o = torch.zeros_like(v)
+                s = o.new_zeros(bsz)
+                for i in range(tsz):
+                    s += torch.linalg.vecdot(k[:, i], v[:, i], dim=-1)
+                    o[:, i] = q[:, i] * s.unsqueeze(-1)
+                o = self.fc_o(torch.cat(o.split(bsz, dim=0), dim=-1))
+                return o
+            if mask.ndim == 2:
+                mask = mask.unsqueeze(-1)
+                k.masked_fill_(mask == 0, 0)
+        context = torch.einsum("b t c, b t d -> b c d", k, v)
+        numerator = torch.einsum("b t c, b c d -> b t d", q, context)
+        denominator = torch.einsum("b t c, b c -> b t", q, torch.sum(k, dim=1))
+        o = numerator / denominator.unsqueeze(-1)
+        o = self.fc_o(torch.cat(o.split(bsz, dim=0), dim=-1))
+        return o
+
+
 class PointerAttention(nn.Module):
     """
     Pointer Attention [Vinyals et al. 2015].
 
-    Notes
-    -----
-    This class returns *logits* which after softmax, will sum to 1 along the last dimension.
+    Note it returns *logits* which after softmax, will sum to 1 along the last dimension.
     It's important that we use the function torch.log_softmax for numerical stability.
     """
     def __init__(self, dim_q, dim_k, dropout_prob=0.1, dim_a=None):
@@ -114,7 +166,7 @@ class PositionwiseFFN(nn.Module):
             nn.init.constant_(module.bias, 0.)
 
     def forward(self, x):
-        return self.fc2(self.dropout(torch.relu(self.fc1(x))))
+        return self.fc2(self.dropout(F.relu(self.fc1(x))))
 
 
 class EncoderBlock(nn.Module):
@@ -125,7 +177,7 @@ class EncoderBlock(nn.Module):
     """
     def __init__(self, dim, hidden_dim, num_heads=8, dropout_prob=0.1):
         super().__init__()
-        self.attn = MultiHeadAttn(dim, dim, dim, num_heads, dropout_prob)
+        self.attn = MultiHeadAttention(dim, dim, dim, num_heads, dropout_prob)
         self.ffn = PositionwiseFFN(dim, hidden_dim, dropout_prob)
         self.dropout = nn.Dropout(dropout_prob)
         self.ln1 = ScaleNorm(dim)
@@ -149,8 +201,8 @@ class DecoderBlock(nn.Module):
         super().__init__()
         if memory_dim is None:
             memory_dim = dim
-        self.attn = MultiHeadAttn(dim, dim, dim, num_heads, dropout_prob)
-        self.mem_attn = MultiHeadAttn(dim, memory_dim, memory_dim, num_heads, dropout_prob)
+        self.attn = MultiHeadAttention(dim, dim, dim, num_heads, dropout_prob)
+        self.mem_attn = MultiHeadAttention(dim, memory_dim, memory_dim, num_heads, dropout_prob)
         self.ffn = PositionwiseFFN(dim, hidden_dim, dropout_prob)
         self.dropout = nn.Dropout(dropout_prob)
         self.ln1 = ScaleNorm(dim)
@@ -167,26 +219,75 @@ class DecoderBlock(nn.Module):
         return x
 
 
-class PositionalEncoding(nn.Module):
+class CrossAttentionBlock(nn.Module):
     """
-    Positional Encoding module [Vaswani et al. NeurIPS 2017].
+    Equivalent to a Transformer decoder block without the self-attention [Vaswani et al. 2017].
+
+    Widely used in Perceiver IO architecture [Jaegle et al. 2022].
+
+    Note that this is the pre-LN version [Nguyen and Salazar 2019].
+    """
+    def __init__(self, dim, hidden_dim, memory_dim=None, num_heads=8, dropout_prob=0.1):
+        super().__init__()
+        if memory_dim is None:
+            memory_dim = dim
+        self.mem_attn = MultiHeadAttention(dim, memory_dim, memory_dim, num_heads, dropout_prob)
+        self.ffn = PositionwiseFFN(dim, hidden_dim, dropout_prob)
+        self.dropout = nn.Dropout(dropout_prob)
+        self.ln1 = ScaleNorm(dim)
+        self.ln2 = ScaleNorm(dim)
+
+    def forward(self, x, memory, mask=None, memory_mask=None):
+        x_ = self.ln1(x)
+        x = x + self.dropout(self.mem_attn(x_, memory, memory, memory_mask))
+        x_ = self.ln2(x)
+        x = x + self.dropout(self.ffn(x_))
+        return x
+
+
+class InducedPointsEncoderBlock(nn.Module):
+    """
+    Induced self-attention block [Lee et al. 2019].
+
+    Instead of O(N^2), this scales as O(NP) where P is the number of inducing points.
+    """
+    def __init__(self, dim, hidden_dim, num_heads, num_inds, dropout_prob=0.1):
+        super().__init__()
+        self.block1 = CrossAttentionBlock(dim, hidden_dim, num_heads, dropout_prob)
+        self.block2 = CrossAttentionBlock(dim, hidden_dim, num_heads, dropout_prob)
+        self.inducing_pts = nn.Parameter(torch.empty((num_inds, dim)))
+        nn.init.xavier_normal_(self.inducing_pts)
+
+    def forward(self, x):
+        pts = self.inducing_pts.repeat(len(x), 1, 1)
+        pts = self.block1(pts, x)
+        x = self.block2(x, pts)
+        return x
+
+
+class PositionalEmbedding(nn.Module):
+    """
+    Positional Embedding module [Vaswani et al. NeurIPS 2017].
 
     Adds sinusoids with wavelengths of increasing length (lower freq) along the embedding dimension.
     First dimension has wavelength 2π while last dimension has wavelength max_length.
     """
-    def __init__(self, dim, dropout_prob=0.0, max_length=10000):
+    def __init__(self, dim, max_length=10000):
         super().__init__()
-        self.dropout = nn.Dropout(dropout_prob)
-        encoding = torch.zeros(max_length, dim)
-        position = torch.arange(0, max_length).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, dim, 2) * (-math.log(max_length / 2 / math.pi) / dim))
-        encoding[:, 0::2] = torch.sin(position * div_term)
-        encoding[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer("encoding", encoding)
+        self.emb = nn.Parameter(self.make_positional_embedding(dim, max_length))
 
     def forward(self, x):
         _, tsz, _ = x.shape
-        return self.dropout(x + self.encoding[:tsz, :])
+        return x + self.emb[:tsz, :]
+
+    @staticmethod
+    def make_positional_embedding(dim, max_length=10000):
+        embedding = torch.zeros(max_length, dim)
+        position = torch.arange(0, max_length).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, dim, 2) * (-math.log(max_length / 2 / math.pi) / dim))
+        embedding[:, 0::2] = torch.sin(position * div_term)
+        embedding[:, 1::2] = torch.cos(position * div_term)
+        return embedding
 
 
 class ScaleNorm(nn.Module):
@@ -202,71 +303,3 @@ class ScaleNorm(nn.Module):
         n = torch.norm(x, dim=-1, keepdim=True).clamp(min=self.eps)
         x = x / n * self.g
         return x
-
-
-class MAB(nn.Module):
-    """
-    Multi-Head Attention Block [Lee et al. ICML 2019].
-
-    Notes
-    -----
-    Here the queries Q and values V must be of the same dimension. We use values V as keys K.
-    """
-    def __init__(self, dim, num_heads, use_layer_norm=False):
-        super().__init__()
-        self.attn = MultiHeadAttn(dim, dim, dim, num_heads, dropout_prob=0.)
-        self.ln1 = ScaleNorm(dim) if use_layer_norm else nn.Identity()
-        self.ln2 = ScaleNorm(dim) if use_layer_norm else nn.Identity()
-        self.fc = nn.Linear(dim, dim, bias=True)
-        nn.init.kaiming_normal_(self.fc.weight, mode="fan_out")
-        nn.init.constant_(self.fc.bias, 0.)
-
-    def forward(self, q, v):
-        out = self.ln1(q + self.attn(q, v, v))
-        return self.ln2(out + self.fc(out))
-
-
-class SAB(nn.Module):
-    """
-    Self Attention Block [Lee et al. ICML 2019].
-    """
-    def __init__(self, dim, num_heads):
-        super().__init__()
-        self.mab = MAB(dim, num_heads)
-
-    def forward(self, x):
-        return self.mab(x, x)
-
-
-class ISAB(nn.Module):
-    """
-    Induced Self-Attention Block [Lee et al. ICML 2019].
-
-    Notes
-    -----
-    Instead of self-attention between all queries and values (N^2), we use M induced points (MN).
-    """
-    def __init__(self, dim, num_heads, num_inds):
-        super().__init__()
-        self.inducing_pts = nn.Parameter(torch.Tensor(1, num_inds, dim))
-        self.mab1 = MAB(dim, num_heads)
-        self.mab2 = MAB(dim, num_heads)
-        nn.init.xavier_normal_(self.inducing_pts)
-
-    def forward(self, x):
-        transformed_pts = self.mab1(self.inducing_pts.repeat(len(x), 1, 1), x)
-        return self.mab2(x, transformed_pts)
-
-
-class PMA(nn.Module):
-    """
-    Pooling by Multi-Head Attention Block [Lee et al. ICML 2019].
-    """
-    def __init__(self, dim, num_heads, num_seeds=1):
-        super().__init__()
-        self.seed_vectors = nn.Parameter(torch.Tensor(1, num_seeds, dim))
-        self.mab = MAB(dim, num_heads)
-        nn.init.xavier_normal_(self.seed_vectors)
-
-    def forward(self, x):
-        return self.mab(self.seed_vectors.repeat(len(x), 1, 1), x)

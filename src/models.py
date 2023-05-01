@@ -1,6 +1,8 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.blocks import EncoderBlock, PositionalEncoding, PMA
+
+from src.blocks import EncoderBlock, PositionalEmbedding
 
 
 class BERTLanguageModel(nn.Module):
@@ -19,8 +21,8 @@ class BERTLanguageModel(nn.Module):
         self.device = device
         self.dim = dim
         self.embedding = nn.Embedding(vocab_size, dim, padding_idx=1)
-        self.positional_encoding = PositionalEncoding(dim, dropout_prob, max_length)
-        self.pool = PMA(dim, num_heads, num_seeds=1)
+        self.positional_encoding = PositionalEmbedding(dim, dropout_prob, max_length)
+        self.cls_token = nn.Parameter(torch.zeros((1, dim)))
         self.fc = nn.Linear(dim, vocab_size, bias=True)
         self.layers = nn.ModuleList()
         for _ in range(num_layers):
@@ -31,17 +33,20 @@ class BERTLanguageModel(nn.Module):
     def initialize_weights(self):
         nn.init.xavier_normal_(self.fc.weight)
         nn.init.constant_(self.fc.bias, 0)
+        nn.init.xavier_normal_(self.cls_token)
 
     def set_device(self):
         for m in self.modules():
             m = m.to(self.device)
 
     def forward(self, x):
+        bsz = x.shape[0]
         x = self.embedding(x)
         x = self.positional_encoding(x)
+        x = torch.cat((x, self.cls_token.repeat(bsz, 1, 1)), dim=1)
         for layer in self.layers:
             x = layer(x)
-        x = self.pool(x).squeeze()
+        x = x[:, -1]
         x = self.fc(x)
         return x
 

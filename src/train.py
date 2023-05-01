@@ -4,14 +4,12 @@ import pickle
 import os
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from argparse import ArgumentParser
 from torchnet import meter
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 from src.models import BERTLanguageModel
-from src.datasets import *
+from src.datasets import LanguageModelDatasetWrapper, get_dataset
 
 
 if __name__ == "__main__":

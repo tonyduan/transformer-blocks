@@ -55,7 +55,7 @@ Multi-head attention projects $\mathbf{Q},\mathbf{K},\mathbf{V}$ using $h$ heads
 \mathrm{MultiHeadAttention}(\mathbf{Q},\mathbf{K},\mathbf{V}) & = \begin{bmatrix}\mid & & \mid\\
 \mathbf{O}_1&\dots & \mathbf{O}_h\\
 \mid & & \mid
-\end{bmatrix}\mathbf{W}^{(\mathbf{O})}\\
+\end{bmatrix}\mathbf{W}^{\mathbf{O}}\\
 \mathrm{where}\ \mathbf{O}_i & = \text{Attention}(\mathbf{Q}\mathbf{W}_i^\mathbf{Q}, \mathbf{K}\mathbf{W}_i^\mathbf{K},\mathbf{V}\mathbf{W}_i^\mathbf{V})\\
 \mathrm{and}\ & (\mathbf{W}_i^\mathbf{Q},\mathbf{W}_i^\mathbf{K},\mathbf{W}_i^\mathbf{V})_{i=1}^h, \mathbf{W}^\mathbf{O}\ \text{are learnable parameters}
 \end{align*}
