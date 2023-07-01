@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from src.blocks import EncoderBlock, ScaleNorm
+from src.blocks import EncoderBlock
 
 
 def gen_data(m, n, k, include_start_token=True):
@@ -34,7 +34,7 @@ class CountExtractor(nn.Module):
             EncoderBlock(dim, 4 * dim, num_heads=1),
             EncoderBlock(dim, 4 * dim, num_heads=1),
         ])
-        self.ln = ScaleNorm(dim)
+        self.ln = nn.LayerNorm(dim)
         self.out_conv = nn.Sequential(
             nn.Linear(dim, dim),
             nn.ReLU(),

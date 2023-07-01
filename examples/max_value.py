@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from src.blocks import EncoderBlock, PointerAttention, ScaleNorm
+from src.blocks import EncoderBlock, PointerAttention
 
 
 def gen_data(m, n, dim=2):
@@ -30,8 +30,8 @@ class MaxValueExtractor(nn.Module):
         )
         self.pointer_attn = PointerAttention(dim, dim)
         self.query = nn.Parameter(torch.zeros(1, dim))
-        self.ln_q = ScaleNorm(dim)
-        self.ln_v = ScaleNorm(dim)
+        self.ln_q = nn.LayerNorm(dim)
+        self.ln_v = nn.LayerNorm(dim)
         self.initialize_weights()
 
     def initialize_weights(self):

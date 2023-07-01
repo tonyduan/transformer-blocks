@@ -1,6 +1,6 @@
 ### Transformer Models
 
-Last update: April 2023.
+Last update: July 2023.
 
 ---
 
@@ -10,8 +10,9 @@ Implementations of blocks for attention-based models:
 2. Cross-attention block from the Perceiver IO paper (Jaegle et al. 2022).
 3. Induced point block from the Set Transformer paper (Lee et al. 2019).
 4. Linear attention variants of the above blocks (Katharopoulos et al. 2020).
+5. ALiBi relative position biases in attention weights (Press et al. 2022).
 
-We implement a pre-normalization scheme with ScaleNorm throughout (Nguyen and Salazar 2019).
+We implement a pre-normalization scheme with LayerNorm throughout, though optionally ScaleNorm  (Nguyen and Salazar 2019).
 
 #### Scaled Dot-Product Attention
 
@@ -97,6 +98,39 @@ which approximates the original kernel function via
 
 We can interpret linear attention as an RNN in the case of a causal attention mask (typically used in a Transformer decoder). Then each query $\mathbf{q}_j$ can only attend to keys $\mathbf{k}_i$ where $i \leq j$. That is, $\mathrm{sim}(\mathbf{q}_j, \mathbf{k}_i) = 0$for $i >j$.  We can interpret $\sum_i \phi(\mathbf{k}_i)\mathbf{v}_i$ and $\phi(\mathbf{k}_i)$ as a "hidden state" that is updated in a recurrence relation for each subsequent query $\mathbf{q}_j$.
 
+#### Sinusoidal Positional Embeddings
+
+The traditional sinusoidal embeddings from Vaswani et al. 2017 are features which interpolate between dimensions of very high frequency to dimensions of very low frequency.
+
+In practice initializing them to random features and learning positional embeddings seems to work about as well empirically.
+
+![Positional Embedding](examples/vis_pos_emb.png)
+
+#### Relative Position Biases
+
+Instead of explicitly adding positional embeddings to tokens, Press et al. 2022 propose the use of relative positional biases in the softmax attention. This allows the model to extrapolate i.e. plausibly generalize to sequences of lengths longer than the context window on which it was trained ("train short, test long").
+
+Specifically, they add a positional bias to the softmax input weighted by a learnable per-head parameter $m$
+
+```math
+\begin{align*}
+\text{Softmax}\left(\frac{1}{\sqrt d}
+\begin{bmatrix}
+\mathbf{q}_1^\top \mathbf{k}_1 & \mathbf{q}_1^\top \mathbf{k}_2 & \dots & \mathbf{q}_1^\top \mathbf{k}_n\\
+\mathbf{q}_2^\top \mathbf{k}_1 & \mathbf{q}_2^\top \mathbf{k}_2 & \dots & \mathbf{q}_2^\top \mathbf{k}_n \\
+\vdots &\vdots & & \vdots \\
+\mathbf{q}_n^\top \mathbf{k}_1 & \mathbf{q}_n^\top \mathbf{k}_2 &\dots & \mathbf{q}_n^\top \mathbf{k}_n
+\end{bmatrix} + m
+\begin{bmatrix} 
+0 & -1 & \dots & -n\\
+-1 & 0 & \dots & -n+1 \\
+\vdots & \vdots & & \vdots \\
+-n & -n+1 &\dots & 0
+\end{bmatrix}\right)
+\end{align*}
+```
+
+
 #### Language Model
 
 In this repository we implement a simple language model using the WikiText-2 dataset.
@@ -120,3 +154,5 @@ Note that the English vocabulary consists of roughly 30k tokens in size.
 [4] Katharopoulos, A., Vyas, A., Pappas, N. & Fleuret, F. Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention. in *International Conference on Machine Learning* 5156–5165 (PMLR, 2020).
 
 [5] Shen, Z., Zhang, M., Zhao, H., Yi, S. & Li, H. Efficient Attention: Attention With Linear Complexities. in *2021 Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision* 3531–3539 (2021).
+
+[6] Press, O., Smith, N. & Lewis, M. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation. in International Conference on Learning Representations (2022).
