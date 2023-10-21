@@ -96,7 +96,7 @@ which approximates the original kernel function via
 \mathrm{sim}(\mathbf{q}_j,\mathbf{k}_j) = \exp(\mathbf{q}_j)^\top \exp(\mathbf{k}_i) \approx \exp\left(\frac{1}{\sqrt d}\mathbf{q}_j^\top \mathbf{k}_i\right).
 ```
 
-We can interpret linear attention as an RNN in the case of a causal attention mask (typically used in a Transformer decoder). Then each query $\mathbf{q}_j$ can only attend to keys $\mathbf{k}_i$ where $i \leq j$. That is, $\mathrm{sim}(\mathbf{q}_j, \mathbf{k}_i) = 0$for $i >j$.  We can interpret $\sum_i \phi(\mathbf{k}_i)\mathbf{v}_i$ and $\phi(\mathbf{k}_i)$ as a "hidden state" that is updated in a recurrence relation for each subsequent query $\mathbf{q}_j$.
+We can interpret linear attention as an RNN in the case of a causal attention mask (typically used in a Transformer decoder). Then each query $\mathbf{q}_j$ can only attend to keys $\mathbf{k}_i$ where $i \leq j$. That is, $\mathrm{sim}(\mathbf{q}_j, \mathbf{k}_i) = 0$ for $i >j$.  We can interpret $\sum_i \phi(\mathbf{k}_i)\mathbf{v}_i$ and $\phi(\mathbf{k}_i)$ as a "hidden state" that is updated in a recurrence relation for each subsequent query $\mathbf{q}_j$.
 
 #### Sinusoidal Positional Embeddings
 
