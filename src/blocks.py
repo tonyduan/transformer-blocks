@@ -178,8 +178,8 @@ class EncoderBlock(nn.Module):
         self.attn = LinearAttention(dim, dim, dim, num_heads, dropout_prob)
         self.ffn = PositionwiseFFN(dim, hidden_dim, dropout_prob)
         self.dropout = nn.Dropout(dropout_prob)
-        self.ln1 = nn.LayerNorm(dim)
-        self.ln2 = nn.LayerNorm(dim)
+        self.ln1 = RMSNorm(dim)
+        self.ln2 = RMSNorm(dim)
 
     def forward(self, x, mask=None):
         x_ = self.ln1(x)
@@ -201,9 +201,9 @@ class DecoderBlock(nn.Module):
         self.mem_attn = MultiHeadAttention(dim, memory_dim, memory_dim, num_heads, dropout_prob)
         self.ffn = PositionwiseFFN(dim, hidden_dim, dropout_prob)
         self.dropout = nn.Dropout(dropout_prob)
-        self.ln1 = nn.LayerNorm(dim)
-        self.ln2 = nn.LayerNorm(dim)
-        self.ln3 = nn.LayerNorm(dim)
+        self.ln1 = RMSNorm(dim)
+        self.ln2 = RMSNorm(dim)
+        self.ln3 = RMSNorm(dim)
 
     def forward(self, x, memory, mask=None, memory_mask=None):
         x_ = self.ln1(x)
@@ -228,8 +228,8 @@ class CrossAttentionBlock(nn.Module):
         self.mem_attn = MultiHeadAttention(dim, memory_dim, memory_dim, num_heads, dropout_prob)
         self.ffn = PositionwiseFFN(dim, hidden_dim, dropout_prob)
         self.dropout = nn.Dropout(dropout_prob)
-        self.ln1 = nn.LayerNorm(dim)
-        self.ln2 = nn.LayerNorm(dim)
+        self.ln1 = RMSNorm(dim)
+        self.ln2 = RMSNorm(dim)
 
     def forward(self, x, memory, mask=None, memory_mask=None):
         x_ = self.ln1(x)
@@ -305,8 +305,9 @@ class RMSNorm(nn.Module):
     RMSNorm [Zhang and Sennich 2019].
     """
     def __init__(self, dim, eps=1e-5):
-        super().__init_()
+        super().__init__()
         self.scale = nn.Parameter(torch.ones(dim))
+        self.dim = dim
         self.eps = eps
 
     def forward(self, x):

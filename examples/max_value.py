@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from src.blocks import EncoderBlock, PointerAttention
+from src.blocks import EncoderBlock, PointerAttention, RMSNorm
 
 
 def gen_data(m, n, dim=2):
@@ -29,21 +29,18 @@ class MaxValueExtractor(nn.Module):
             EncoderBlock(dim, 4 * dim, num_heads=1),
         )
         self.pointer_attn = PointerAttention(dim, dim)
-        self.query = nn.Parameter(torch.zeros(1, dim))
-        self.ln_q = nn.LayerNorm(dim)
-        self.ln_v = nn.LayerNorm(dim)
-        self.initialize_weights()
-
-    def initialize_weights(self):
+        self.query = nn.Parameter(torch.empty(1, dim))
+        self.ln = RMSNorm(dim)
         nn.init.xavier_normal_(self.projection.weight)
         nn.init.xavier_normal_(self.query)
 
     def forward(self, x):
         bsz, tsz, _ = x.shape
         x = self.projection(x)
-        v = self.ln_v(self.encoder_blocks(x))
-        q = self.ln_q(self.query.repeat(bsz, 1, 1))
-        log_lik = self.pointer_attn(q, v).squeeze(dim=1)
+        q = self.query.repeat(bsz, 1, 1)
+        x = self.encoder_blocks(x)
+        x = self.ln(x)
+        log_lik = self.pointer_attn(q, x).squeeze(dim=1)
         return log_lik
 
 
@@ -90,7 +87,7 @@ if __name__ == "__main__":
 
     NUM_SAMPLES_TO_VIS = 6
 
-    plt.figure(figsize=(16, 10))
+    plt.figure(figsize=(13, 8))
     for i in range(NUM_SAMPLES_TO_VIS):
         plt.subplot(2, 3, i + 1)
         plt.scatter(x_te[i, :, 0], x_te[i, :, 1], marker="o", alpha=0.5, color="grey")

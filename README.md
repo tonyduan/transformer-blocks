@@ -9,9 +9,13 @@ Implementations of blocks for attention-based models:
 1. Encoder and decoder blocks of the original Transformer paper (Vaswani et al. 2017).
 2. Cross-attention block from the Perceiver IO paper (Jaegle et al. 2022).
 3. Induced point block from the Set Transformer paper (Lee et al. 2019).
-4. Linear attention variants of the above blocks (Katharopoulos et al. 2020).
+4. Linear attention variants of the above (Katharopoulos et al. 2020).
 
-We implement a pre-normalization scheme (Xiong et al. 2020) with LayerNorm throughout, though optionally ScaleNorm  (Nguyen and Salazar 2019) and RMSNorm (Zhang and Sennich, 2019) are also supported.
+We implement a pre-normalization scheme (Xiong et al. 2020) which supports:
+
+1. LayerNorm (Ba et al. 2016)
+2. ScaleNorm  (Nguyen and Salazar 2019) 
+3. RMSNorm (Zhang and Sennich, 2019) 
 
 #### Scaled Dot-Product Attention
 
@@ -162,3 +166,5 @@ Note that the English vocabulary consists of roughly 30k tokens in size.
 [7] Zhang, B. & Sennrich, R. Root Mean Square Layer Normalization. in *Advances in Neural Information Processing Systems* vol. 32 (Curran Associates, Inc., 2019).
 
 [8] Xiong, R. *et al.* On Layer Normalization in the Transformer Architecture. in *Proceedings of the 37th International Conference on Machine Learning* 10524–10533 (PMLR, 2020).
+
+[9] Ba, J. L., Kiros, J. R. & Hinton, G. E. *Layer Normalization*. https://arxiv.org/abs/1607.06450v1 (2016).
