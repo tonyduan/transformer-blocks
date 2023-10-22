@@ -10,9 +10,8 @@ Implementations of blocks for attention-based models:
 2. Cross-attention block from the Perceiver IO paper (Jaegle et al. 2022).
 3. Induced point block from the Set Transformer paper (Lee et al. 2019).
 4. Linear attention variants of the above blocks (Katharopoulos et al. 2020).
-5. ALiBi relative position biases in attention weights (Press et al. 2022).
 
-We implement a pre-normalization scheme with LayerNorm throughout, though optionally ScaleNorm  (Nguyen and Salazar 2019).
+We implement a pre-normalization scheme (Xiong et al. 2020) with LayerNorm throughout, though optionally ScaleNorm  (Nguyen and Salazar 2019) and RMSNorm (Zhang and Sennich, 2019) are also supported.
 
 #### Scaled Dot-Product Attention
 
@@ -110,7 +109,7 @@ In practice initializing them to random features and learning positional embeddi
 
 Instead of explicitly adding positional embeddings to tokens, Press et al. 2022 propose the use of relative positional biases in the softmax attention. This allows the model to extrapolate i.e. plausibly generalize to sequences of lengths longer than the context window on which it was trained ("train short, test long").
 
-Specifically, they add a positional bias to the softmax input weighted by a learnable per-head parameter $m$
+Specifically, they add a positional bias to the softmax input weighted by a learnable per-head parameter $m$.
 
 ```math
 \begin{align*}
@@ -130,6 +129,9 @@ Specifically, they add a positional bias to the softmax input weighted by a lear
 \end{align*}
 ```
 
+Typically the per-head parameters $m$ are learned in log-space. 
+
+In the interest of simplicity it's removed from this implementation. 
 
 #### Language Model
 
@@ -156,3 +158,7 @@ Note that the English vocabulary consists of roughly 30k tokens in size.
 [5] Shen, Z., Zhang, M., Zhao, H., Yi, S. & Li, H. Efficient Attention: Attention With Linear Complexities. in *2021 Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision* 3531–3539 (2021).
 
 [6] Press, O., Smith, N. & Lewis, M. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation. in International Conference on Learning Representations (2022).
+
+[7] Zhang, B. & Sennrich, R. Root Mean Square Layer Normalization. in *Advances in Neural Information Processing Systems* vol. 32 (Curran Associates, Inc., 2019).
+
+[8] Xiong, R. *et al.* On Layer Normalization in the Transformer Architecture. in *Proceedings of the 37th International Conference on Machine Learning* 10524–10533 (PMLR, 2020).

@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from einops import einsum, rearrange, reduce, repeat
+
 
 class MultiHeadAttention(nn.Module):
     """
@@ -19,24 +21,22 @@ class MultiHeadAttention(nn.Module):
     (2) We assume the last and second last dimensions correspond to the feature (i.e. embedding)
         and token (i.e. words) dimensions respectively.
     """
-    def __init__(self, dim_q, dim_k, dim_v, num_heads=8, dropout_prob=0.1, dim_a=None, dim_o=None, use_alibi=False):
+    def __init__(self, dim_q, dim_k, dim_v, num_heads=8, dropout_prob=0.1, dim_a=None, dim_o=None):
         super().__init__()
         if dim_a is None:
             dim_a = dim_q
         if dim_o is None:
             dim_o = dim_q
-        self.dim_a, self.dim_o, self.num_heads, self.use_alibi = dim_a, dim_o, num_heads, use_alibi
+        self.dim_a, self.dim_o, self.num_heads = dim_a, dim_o, num_heads
         self.fc_q = nn.Linear(dim_q, dim_a, bias=True)
         self.fc_k = nn.Linear(dim_k, dim_a, bias=True)
         self.fc_v = nn.Linear(dim_v, dim_o, bias=True)
         self.fc_o = nn.Linear(dim_o, dim_o, bias=True)
         self.dropout = nn.Dropout(dropout_prob)
+        self.scale = self.dim_a ** -0.5
         for module in (self.fc_q, self.fc_k, self.fc_v, self.fc_o):
             nn.init.xavier_normal_(module.weight)
             nn.init.constant_(module.bias, 0.)
-        if self.use_alibi:
-            log_slopes = torch.log(torch.arange(8, 0, -(8 / self.num_heads)))
-            self.log_slopes = nn.Parameter(log_slopes.repeat(self.num_heads, 1, 1))
 
     def forward(self, q, k, v, mask=None):
         """
@@ -55,24 +55,21 @@ class MultiHeadAttention(nn.Module):
         """
         bsz, tsz, _ = q.shape
         q, k, v = self.fc_q(q), self.fc_k(k), self.fc_v(v)
-        q = torch.stack(q.split(self.dim_a // self.num_heads, dim=-1), dim=1)
-        k = torch.stack(k.split(self.dim_a // self.num_heads, dim=-1), dim=1)
-        v = torch.stack(v.split(self.dim_o // self.num_heads, dim=-1), dim=1)
-        a = q @ k.transpose(-1, -2) / self.dim_a ** 0.5
-        if self.use_alibi:
-            arange = torch.arange(tsz, device=q.device)
-            bias = -torch.abs(arange.unsqueeze(-1) - arange.unsqueeze(-2))
-            bias = bias.repeat(self.num_heads, 1, 1) * torch.exp2(-torch.exp(self.log_slopes))
-            a.add_(bias.unsqueeze(0))
+        q = rearrange(q, "b t (g c) -> b g t c", g=self.num_heads)
+        k = rearrange(k, "b t (g c) -> b g t c", g=self.num_heads)
+        v = rearrange(v, "b t (g c) -> b g t c", g=self.num_heads)
+        a = einsum(q, k, "b g q c, b g k c -> b g q k") * self.scale
         if mask is not None:
             assert mask.ndim in (2, 3)
             if mask.ndim == 3:
-                mask = mask.unsqueeze(1)
+                mask = rearrange(mask, "b q k -> b 1 q k")
             if mask.ndim == 2:
-                mask = mask.unsqueeze(1).unsqueeze(1)
+                mask = rearrange(mask, "b k -> b 1 1 k")
             a.masked_fill_(mask == 0, -65504)
-        a = self.dropout(torch.softmax(a, dim=-1))
-        o = self.fc_o(a @ v).transpose(1, 2).flatten(2, 3)
+        a = self.dropout(F.softmax(a, dim=-1))
+        o = einsum(a, v, "b g q k, b g k c -> b g q c")
+        o = rearrange(o, "b g t c -> b t (g c)")
+        o = self.fc_o(o)
         return o
 
 
@@ -80,7 +77,8 @@ class LinearAttention(nn.Module):
     """
     Linear Attention with ELU activation [Katharopoulos et al. 2020].
 
-    Note the mask must either be causal or rectangular. Arbitrary masks are not supported.
+    Note the mask must be rectangular. Arbitrary masks are not supported.
+    Causal mask is doable not implemented here but can be unrolled as an RNN step (see paper).
     """
     def __init__(self, dim_q, dim_k, dim_v, num_heads=8, dropout_prob=0.1, dim_a=None, dim_o=None):
         super().__init__()
@@ -99,32 +97,27 @@ class LinearAttention(nn.Module):
             nn.init.constant_(module.bias, 0.)
 
     def forward(self, q, k, v, mask=None):
-        bsz, tsz, _ = q.shape
+        bsz, *_ = q.shape
         q, k, v = self.fc_q(q), self.fc_k(k), self.fc_v(v)
-        q = torch.cat(q.split(self.dim_a // self.num_heads, dim=-1), dim=0)
-        k = torch.cat(k.split(self.dim_a // self.num_heads, dim=-1), dim=0)
-        v = torch.cat(v.split(self.dim_o // self.num_heads, dim=-1), dim=0)
         q = F.elu(q) + 1
         k = F.elu(k) + 1
+        q = rearrange(q, "b t (g c) -> b g t c", g=self.num_heads)
+        k = rearrange(k, "b t (g c) -> b g t c", g=self.num_heads)
+        v = rearrange(v, "b t (g c) -> b g t c", g=self.num_heads)
         if mask is not None:
-            assert mask.ndim in (2, 3)
-            if mask.ndim == 3:
-                assert torch.all(torch.tril(mask) == mask)
-                o = torch.zeros_like(v)
-                s = o.new_zeros(bsz)
-                for i in range(tsz):
-                    s += torch.linalg.vecdot(k[:, i], v[:, i], dim=-1)
-                    o[:, i] = q[:, i] * s.unsqueeze(-1)
-                o = self.fc_o(torch.cat(o.split(bsz, dim=0), dim=-1))
-                return o
-            if mask.ndim == 2:
-                mask = mask.unsqueeze(-1)
-                k.masked_fill_(mask == 0, 0)
-        context = torch.einsum("b t c, b t d -> b c d", k, v)
-        numerator = torch.einsum("b t c, b c d -> b t d", q, context)
-        denominator = torch.einsum("b t c, b c -> b t", q, torch.sum(k, dim=1))
-        o = numerator / denominator.unsqueeze(-1)
-        o = self.fc_o(torch.cat(o.split(bsz, dim=0), dim=-1))
+            assert mask.ndim == 2
+            mask = rearrange(mask, "b k -> b 1 1 k")
+            k.masked_fill_(mask == 0, 0)
+        # These can be cached, they take the sum over tokens
+        k_sum = reduce(k, "b g t c -> b g c", "sum")
+        k_v = einsum(k, v, "b g t c_k, b g t c_v -> b g c_k c_v")
+        # These need to be recomputed in causal rollout
+        q_k_v = einsum(q, k_v, "b g q c_k, b g c_k c_v -> b g q c_v")
+        q_k_sum = einsum(q, k_sum, "b g q c, b g c -> b g q")
+        # This division is safe because the activation is ELU(x) + 1
+        o = q_k_v / q_k_sum.unsqueeze(-1)
+        o = rearrange(o, "b g t c -> b t (g c)")
+        o = self.fc_o(o)
         return o
 
 
@@ -140,6 +133,7 @@ class PointerAttention(nn.Module):
         if dim_a is None:
             dim_a = dim_q
         self.dim_a = dim_a
+        self.scale = self.dim_a ** -0.5
         self.fc_q = nn.Linear(dim_q, dim_a, bias=True)
         self.fc_k = nn.Linear(dim_k, dim_a, bias=True)
         for module in (self.fc_q, self.fc_k):
@@ -147,15 +141,13 @@ class PointerAttention(nn.Module):
             nn.init.constant_(module.bias, 0.)
 
     def forward(self, q, k, mask=None):
-        bsz, tsz, _ = q.shape
+        bsz, *_ = q.shape
         q, k, = self.fc_q(q), self.fc_k(k)
-        a = q @ k.transpose(-1, -2) / self.dim_a ** 0.5
+        a = torch.einsum("b q c, b k c -> b q k", q, k) * self.scale
         if mask is not None:
             assert mask.ndim in (2, 3)
-            if mask.ndim == 3:
-                mask = mask.repeat(self.num_heads, 1, 1)
             if mask.ndim == 2:
-                mask = mask.unsqueeze(-2).repeat(self.num_heads, tsz, 1)
+                mask = rearrange(mask, "b k -> b 1 k")
             a.masked_fill_(mask == 0, -65504)
         return torch.log_softmax(a, dim=-1)
 
@@ -170,7 +162,7 @@ class PositionwiseFFN(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, dim, bias=True)
         self.dropout = nn.Dropout(dropout_prob)
         for module in (self.fc1, self.fc2):
-            nn.init.kaiming_normal_(module.weight)
+            nn.init.xavier_normal_(module.weight)
             nn.init.constant_(module.bias, 0.)
 
     def forward(self, x):
@@ -180,12 +172,10 @@ class PositionwiseFFN(nn.Module):
 class EncoderBlock(nn.Module):
     """
     Transformer encoder block [Vaswani et al. NeurIPS 2017].
-
-    Note that this is the pre-LN version [Nguyen and Salazar 2019].
     """
     def __init__(self, dim, hidden_dim, num_heads=8, dropout_prob=0.1):
         super().__init__()
-        self.attn = MultiHeadAttention(dim, dim, dim, num_heads, dropout_prob)
+        self.attn = LinearAttention(dim, dim, dim, num_heads, dropout_prob)
         self.ffn = PositionwiseFFN(dim, hidden_dim, dropout_prob)
         self.dropout = nn.Dropout(dropout_prob)
         self.ln1 = nn.LayerNorm(dim)
@@ -202,8 +192,6 @@ class EncoderBlock(nn.Module):
 class DecoderBlock(nn.Module):
     """
     Transformer decoder block [Vaswani et al. 2017].
-
-    Note that this is the pre-LN version [Nguyen and Salazar 2019].
     """
     def __init__(self, dim, hidden_dim, memory_dim=None, num_heads=8, dropout_prob=0.1):
         super().__init__()
@@ -232,8 +220,6 @@ class CrossAttentionBlock(nn.Module):
     Equivalent to a Transformer decoder block without the self-attention [Vaswani et al. 2017].
 
     Widely used in Perceiver IO architecture [Jaegle et al. 2022].
-
-    Note that this is the pre-LN version [Nguyen and Salazar 2019].
     """
     def __init__(self, dim, hidden_dim, memory_dim=None, num_heads=8, dropout_prob=0.1):
         super().__init__()
@@ -263,14 +249,15 @@ class InducedPointsEncoderBlock(nn.Module):
         super().__init__()
         self.block1 = CrossAttentionBlock(dim, hidden_dim, num_heads, dropout_prob)
         self.block2 = CrossAttentionBlock(dim, hidden_dim, num_heads, dropout_prob)
-        self.inducing_pts = nn.Parameter(torch.empty((num_inds, dim)))
+        self.latent_pts = nn.Parameter(torch.empty((1, num_inds, dim)))
         nn.init.xavier_normal_(self.inducing_pts)
 
     def forward(self, x):
-        pts = self.inducing_pts.repeat(len(x), 1, 1)
-        pts_transformed = self.block1(pts, x)
-        x_transformed = self.block2(x, pts_transformed)
-        return x_transformed
+        bsz, *_ = x.shape
+        latent_pts = repeat(self.latent_pts, "1 t c -> b t c", b=bsz)
+        latent_pts_to_x = self.block1(latent_pts, x)
+        x_to_latent_pts = self.block2(x, latent_pts_to_x)
+        return x_to_latent_pts
 
 
 class PositionalEmbedding(nn.Module):
@@ -310,4 +297,19 @@ class ScaleNorm(nn.Module):
     def forward(self, x):
         n = torch.norm(x, dim=-1, keepdim=True).clamp(min=self.eps)
         x = x / n * self.g
+        return x
+
+
+class RMSNorm(nn.Module):
+    """
+    RMSNorm [Zhang and Sennich 2019].
+    """
+    def __init__(self, dim, eps=1e-5):
+        super().__init_()
+        self.scale = nn.Parameter(torch.ones(dim))
+        self.eps = eps
+
+    def forward(self, x):
+        n = torch.norm(x, dim=-1, keepdim=True).clamp(min=self.eps)
+        x = x / n * self.scale * self.dim ** -0.5
         return x
