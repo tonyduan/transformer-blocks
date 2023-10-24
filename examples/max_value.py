@@ -48,18 +48,19 @@ if __name__ == "__main__":
 
     argparser = ArgumentParser()
     argparser.add_argument("--iterations", type=int, default=300)
+    argparser.add_argument("--device", type=str, default="cpu")
     args = argparser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    model = MaxValueExtractor(16)
+    model = MaxValueExtractor(16).to(args.device)
     optimizer = optim.AdamW(model.parameters(), lr=0.01)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.iterations)
 
     x_tr, y_tr = gen_data(500, 50)
-    x_tr = torch.tensor(x_tr, dtype=torch.float)
-    y_tr = torch.tensor(y_tr, dtype=torch.float)
+    x_tr = torch.tensor(x_tr, dtype=torch.float, device=args.device)
+    y_tr = torch.tensor(y_tr, dtype=torch.float, device=args.device)
 
     for i in range(args.iterations):
 
@@ -75,15 +76,15 @@ if __name__ == "__main__":
 
 
     x_te, y_te = gen_data(100, 50)
-    x_te = torch.tensor(x_te, dtype=torch.float32)
-    y_te = torch.tensor(y_te, dtype=torch.int64)
+    x_te = torch.tensor(x_te, dtype=torch.float32, device=args.device)
+    y_te = torch.tensor(y_te, dtype=torch.int64, device=args.device)
     with torch.no_grad():
         y_hat = model.forward(x_te)
         y_hat_argmax = torch.argmax(y_hat, dim=-1)
 
-    x_te = x_te.data.numpy()
-    y_te = y_te.data.numpy()
-    y_hat_argmax = y_hat_argmax.data.numpy()
+    x_te = x_te.data.cpu().numpy()
+    y_te = y_te.data.cpu().numpy()
+    y_hat_argmax = y_hat_argmax.data.cpu().numpy()
 
     NUM_SAMPLES_TO_VIS = 6
 
